@@ -1,0 +1,8 @@
+name: caller-worker
+runtime:
+  kind: typescript
+  package_manager: npm
+  entry: src/worker.ts
+scripts:
+  install: "npm install"
+  start: "npx tsx src/worker.ts"

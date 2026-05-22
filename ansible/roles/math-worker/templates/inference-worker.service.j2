@@ -1,0 +1,36 @@
+[Unit]
+Description=iii Inference Worker – Python Gemma-3-270M
+Documentation=https://iii.dev/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ service_user }}
+Group={{ service_group }}
+WorkingDirectory={{ project_dir }}/inference-worker
+
+EnvironmentFile={{ project_dir }}/inference-worker/.env
+ExecStart={{ project_dir }}/inference-worker/venv/bin/python -m iii_worker
+
+# Inference is slow to start – give it 120s before systemd kills it
+TimeoutStartSec=120
+
+Restart=always
+RestartSec=15
+StartLimitInterval=120
+StartLimitBurst=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths={{ project_dir }}
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=inference-worker
+
+Environment=HOME={{ project_dir }}
+
+[Install]
+WantedBy=multi-user.target

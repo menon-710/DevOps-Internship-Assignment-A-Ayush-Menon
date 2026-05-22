@@ -1,0 +1,201 @@
+---
+- name: Configure API Gateway (nginx)
+  hosts: gateway
+  become: true
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: true
+
+    - name: Write nginx config
+      copy:
+        dest: /etc/nginx/sites-available/iii-api.conf
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location /health {
+                  return 200 '{"status":"ok","service":"alchemyst-gateway"}';
+                  add_header Content-Type application/json;
+              }
+
+              location / {
+                  proxy_pass http://10.0.1.10:5000;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_read_timeout 60s;
+              }
+          }
+
+    - name: Enable site
+      file:
+        src: /etc/nginx/sites-available/iii-api.conf
+        dest: /etc/nginx/sites-enabled/iii-api.conf
+        state: link
+
+    - name: Remove default site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Restart nginx
+      service:
+        name: nginx
+        state: restarted
+        enabled: true
+
+- name: Deploy iii Engine + Workers + API wrapper
+  hosts: engine
+  become: true
+  tasks:
+    - name: Install dependencies
+      apt:
+        name:
+          - curl
+          - python3
+          - python3-pip
+          - python3-venv
+          - git
+        state: present
+        update_cache: true
+
+    - name: Install iii CLI
+      shell: curl -fsSL https://iii.dev/install.sh | sh
+      args:
+        creates: /home/ubuntu/.local/bin/iii
+      become_user: ubuntu
+      environment:
+        HOME: /home/ubuntu
+
+    - name: Create project directory
+      file:
+        path: /opt/alchemyst/quickstart/workers
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0755"
+        recurse: true
+
+    - name: Copy config.yaml
+      copy:
+        src: roles/engine/files/config.yaml
+        dest: /opt/alchemyst/quickstart/config.yaml
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"
+
+    - name: Fix worker paths in config.yaml
+      replace:
+        path: /opt/alchemyst/quickstart/config.yaml
+        regexp: 'worker_path:.*math-worker'
+        replace: 'worker_path: /opt/alchemyst/quickstart/workers/math-worker'
+
+    - name: Fix caller worker path in config.yaml
+      replace:
+        path: /opt/alchemyst/quickstart/config.yaml
+        regexp: 'worker_path:.*caller-worker'
+        replace: 'worker_path: /opt/alchemyst/quickstart/workers/caller-worker'
+
+    - name: Copy math-worker files
+      copy:
+        src: roles/math-worker/files/math-worker/
+        dest: /opt/alchemyst/quickstart/workers/math-worker/
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"
+
+    - name: Copy caller-worker files
+      copy:
+        src: roles/caller-worker/files/caller-worker/
+        dest: /opt/alchemyst/quickstart/workers/caller-worker/
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"
+
+    - name: Copy API gateway wrapper
+      copy:
+        src: ../api-gateway/app.py
+        dest: /opt/alchemyst/app.py
+        owner: ubuntu
+        group: ubuntu
+        mode: "0644"
+
+    - name: Install Flask
+      shell: pip3 install flask gunicorn || pip3 install flask gunicorn --break-system-packages
+      args:
+        executable: /bin/bash
+
+    - name: Install iii engine systemd service
+      copy:
+        dest: /etc/systemd/system/iii-engine.service
+        content: |
+          [Unit]
+          Description=iii Engine
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=ubuntu
+          WorkingDirectory=/opt/alchemyst/quickstart
+          ExecStart=/home/ubuntu/.local/bin/iii --config /opt/alchemyst/quickstart/config.yaml
+          Restart=always
+          RestartSec=10
+          TimeoutStartSec=120
+          Environment=HOME=/home/ubuntu
+          Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Install Flask API systemd service
+      copy:
+        dest: /etc/systemd/system/iii-api.service
+        content: |
+          [Unit]
+          Description=iii HTTP API Wrapper
+          After=iii-engine.service
+          Wants=iii-engine.service
+
+          [Service]
+          Type=simple
+          User=ubuntu
+          WorkingDirectory=/opt/alchemyst/quickstart
+          ExecStart=/usr/bin/python3 /opt/alchemyst/app.py
+          Restart=always
+          RestartSec=5
+          Environment=HOME=/home/ubuntu
+          Environment=III_BIN=/home/ubuntu/.local/bin/iii
+          Environment=WORKING_DIR=/opt/alchemyst/quickstart
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Enable and start iii engine
+      service:
+        name: iii-engine
+        state: started
+        enabled: true
+
+    - name: Wait for engine to be ready
+      pause:
+        seconds: 15
+
+    - name: Enable and start Flask API
+      service:
+        name: iii-api
+        state: started
+        enabled: true
+# patch applied below

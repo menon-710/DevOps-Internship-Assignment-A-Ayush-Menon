@@ -1,0 +1,138 @@
+---
+# ansible/roles/common/tasks/main.yml
+# Applied to every VM before anything else.
+# Covers: updates, hardening, iii user, firewall, fail2ban
+
+- name: Update apt cache and upgrade packages
+  apt:
+    update_cache: true
+    upgrade: dist
+    cache_valid_time: 3600
+
+- name: Install common packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - htop
+      - unzip
+      - ufw
+      - fail2ban
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - jq
+      - net-tools
+    state: present
+
+- name: Create dedicated service user
+  user:
+    name: "{{ service_user }}"
+    group: "{{ service_group }}"
+    shell: /bin/bash
+    system: true
+    create_home: true
+    home: "{{ project_dir }}"
+  ignore_errors: true  # group may need creating first
+
+- name: Create service group
+  group:
+    name: "{{ service_group }}"
+    system: true
+
+- name: Create dedicated service user (retry after group creation)
+  user:
+    name: "{{ service_user }}"
+    group: "{{ service_group }}"
+    shell: /bin/bash
+    system: true
+    create_home: true
+    home: "{{ project_dir }}"
+
+- name: Create project directory
+  file:
+    path: "{{ project_dir }}"
+    state: directory
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0755"
+
+# ── SSH hardening ─────────────────────────────────────────────────────────────
+
+- name: Harden SSH – disable root login and password auth
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^X11Forwarding', line: 'X11Forwarding no' }
+    - { regexp: '^MaxAuthTries', line: 'MaxAuthTries 3' }
+  notify: Restart SSH
+
+# ── UFW firewall ──────────────────────────────────────────────────────────────
+
+- name: Set UFW default policies
+  ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+
+- name: Allow outbound by default
+  ufw:
+    policy: allow
+    direction: outgoing
+
+- name: Allow SSH
+  ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+# ── fail2ban ─────────────────────────────────────────────────────────────────
+
+- name: Configure fail2ban for SSH
+  copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [sshd]
+      enabled  = true
+      port     = ssh
+      maxretry = 3
+      bantime  = 3600
+      findtime = 600
+  notify: Restart fail2ban
+
+# ── Kernel hardening (sysctl) ─────────────────────────────────────────────────
+
+- name: Apply sysctl hardening
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - { name: 'net.ipv4.ip_forward', value: '0' }
+    - { name: 'net.ipv4.conf.all.rp_filter', value: '1' }
+    - { name: 'net.ipv4.conf.all.accept_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.all.send_redirects', value: '0' }
+    - { name: 'net.ipv4.tcp_syncookies', value: '1' }
+
+- name: Set system timezone to UTC
+  timezone:
+    name: UTC
+
+handlers:
+  - name: Restart SSH
+    service:
+      name: sshd
+      state: restarted
+
+  - name: Restart fail2ban
+    service:
+      name: fail2ban
+      state: restarted
+      enabled: true

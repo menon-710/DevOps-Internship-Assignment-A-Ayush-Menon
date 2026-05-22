@@ -1,0 +1,99 @@
+---
+- name: Install system dependencies
+  apt:
+    name:
+      - curl
+      - python3
+      - python3-pip
+      - python3-venv
+      - nodejs
+      - npm
+    state: present
+    update_cache: true
+
+- name: Install iii CLI for ubuntu user
+  shell: curl -fsSL https://iii.dev/install.sh | sh
+  args:
+    creates: /home/ubuntu/.local/bin/iii
+  become_user: ubuntu
+  environment:
+    HOME: /home/ubuntu
+
+- name: Verify iii installed
+  command: /home/ubuntu/.local/bin/iii --version
+  become_user: ubuntu
+  register: iii_ver
+  changed_when: false
+
+- name: Show iii version
+  debug:
+    msg: "{{ iii_ver.stdout }}"
+
+- name: Create project directory
+  file:
+    path: "{{ project_dir }}/quickstart/workers"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+    recurse: true
+
+- name: Copy config.yaml template
+  template:
+    src: config.yaml.j2
+    dest: "{{ project_dir }}/quickstart/config.yaml"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+
+- name: Copy math-worker files
+  copy:
+    src: "{{ role_path }}/../math-worker/files/math-worker/"
+    dest: "{{ project_dir }}/quickstart/workers/math-worker/"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+
+- name: Copy caller-worker files
+  copy:
+    src: "{{ role_path }}/../caller-worker/files/caller-worker/"
+    dest: "{{ project_dir }}/quickstart/workers/caller-worker/"
+    owner: ubuntu
+    group: ubuntu
+    mode: "0644"
+
+- name: Install iii engine systemd service
+  template:
+    src: iii-engine.service.j2
+    dest: /etc/systemd/system/iii-engine.service
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart iii-engine
+
+- name: Open engine ports in UFW
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    src: "10.0.0.0/8"
+  loop:
+    - "49134"
+    - "3111"
+    - "3112"
+
+- name: Enable and start iii engine
+  service:
+    name: iii-engine
+    state: started
+    enabled: true
+
+handlers:
+  - name: Reload systemd
+    systemd:
+      daemon_reload: true
+
+  - name: Restart iii-engine
+    service:
+      name: iii-engine
+      state: restarted

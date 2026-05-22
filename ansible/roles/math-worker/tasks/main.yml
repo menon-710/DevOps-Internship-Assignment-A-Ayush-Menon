@@ -1,0 +1,93 @@
+---
+# ansible/roles/inference-worker/tasks/main.yml
+# Installs Python, the iii SDK, pulls Gemma-3-270M, runs inference-worker
+
+- name: Install Python and build dependencies
+  apt:
+    name:
+      - python3
+      - python3-pip
+      - python3-venv
+      - python3-dev
+      - build-essential
+      - libssl-dev
+      - libffi-dev
+    state: present
+
+- name: Install iii CLI
+  shell: |
+    curl -fsSL https://iii.dev/install.sh | sh
+  args:
+    creates: /usr/local/bin/iii
+  environment:
+    HOME: /root
+
+- name: Symlink iii to /usr/local/bin
+  shell: |
+    III_PATH=$(find /root -name 'iii' -type f 2>/dev/null | head -1)
+    if [ -n "$III_PATH" ] && [ ! -f /usr/local/bin/iii ]; then
+      ln -s "$III_PATH" /usr/local/bin/iii
+    fi
+  changed_when: false
+
+- name: Create inference-worker directory
+  file:
+    path: "{{ project_dir }}/inference-worker"
+    state: directory
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0755"
+
+- name: Create Python virtual environment
+  command: python3 -m venv {{ project_dir }}/inference-worker/venv
+  args:
+    creates: "{{ project_dir }}/inference-worker/venv"
+  become_user: "{{ service_user }}"
+
+- name: Copy inference-worker source files
+  copy:
+    src: inference-worker/
+    dest: "{{ project_dir }}/inference-worker/"
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0644"
+
+- name: Install Python dependencies into venv
+  pip:
+    requirements: "{{ project_dir }}/inference-worker/requirements.txt"
+    virtualenv: "{{ project_dir }}/inference-worker/venv"
+    virtualenv_python: python3
+  become_user: "{{ service_user }}"
+
+- name: Write inference-worker environment file
+  template:
+    src: inference-worker.env.j2
+    dest: "{{ project_dir }}/inference-worker/.env"
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0600"
+
+- name: Install inference-worker systemd service
+  template:
+    src: inference-worker.service.j2
+    dest: /etc/systemd/system/inference-worker.service
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart inference-worker
+
+- name: Enable and start inference-worker
+  service:
+    name: inference-worker
+    state: started
+    enabled: true
+
+handlers:
+  - name: Reload systemd
+    systemd:
+      daemon_reload: true
+
+  - name: Restart inference-worker
+    service:
+      name: inference-worker
+      state: restarted

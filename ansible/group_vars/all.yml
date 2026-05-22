@@ -1,0 +1,32 @@
+---
+# ansible/group_vars/all.yml
+# Variables available to every role and playbook
+
+# iii engine connection – workers dial this
+iii_engine_ws_port: 49134
+iii_engine_rest_port: 3111
+iii_engine_stream_port: 3112
+
+# iii version
+iii_version: "latest"
+
+# The HTTP endpoint the caller-worker exposes
+inference_api_path: "/v1/chat/completions"
+inference_http_method: "POST"
+inference_http_port: 3111
+
+# Python version
+python_version: "python3"
+
+# Node version for caller-worker
+node_major_version: "20"
+
+# System user that runs all services
+service_user: "iii"
+service_group: "iii"
+
+# Project directory on each VM
+project_dir: "/opt/alchemyst"
+
+# Model details
+model_name: "gemma-3-270m"

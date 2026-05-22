@@ -1,0 +1,33 @@
+[Unit]
+Description=iii Caller Worker – TypeScript HTTP + RPC Bridge
+Documentation=https://iii.dev/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ service_user }}
+Group={{ service_group }}
+WorkingDirectory={{ project_dir }}/caller-worker
+
+EnvironmentFile={{ project_dir }}/caller-worker/.env
+ExecStart=/usr/local/bin/iii worker start .
+
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths={{ project_dir }}
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=caller-worker
+
+Environment=HOME={{ project_dir }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,26 @@
+[Unit]
+Description=iii Engine - Distributed Worker Orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory={{ project_dir }}/quickstart
+
+ExecStart=/home/ubuntu/.local/bin/iii --config {{ project_dir }}/quickstart/config.yaml
+
+Restart=always
+RestartSec=10
+TimeoutStartSec=120
+
+Environment=HOME=/home/ubuntu
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iii-engine
+
+[Install]
+WantedBy=multi-user.target

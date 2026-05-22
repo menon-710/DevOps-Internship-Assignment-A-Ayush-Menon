@@ -1,0 +1,90 @@
+---
+# ansible/roles/caller-worker/tasks/main.yml
+# Installs Node.js and deploys the TypeScript caller-worker
+
+- name: Install Node.js {{ node_major_version }} via NodeSource
+  shell: |
+    curl -fsSL https://deb.nodesource.com/setup_{{ node_major_version }}.x | bash -
+    apt-get install -y nodejs
+  args:
+    creates: /usr/bin/node
+
+- name: Verify Node.js version
+  command: node --version
+  register: node_ver
+  changed_when: false
+
+- name: Show Node.js version
+  debug:
+    msg: "Node.js: {{ node_ver.stdout }}"
+
+- name: Install iii CLI
+  shell: |
+    curl -fsSL https://iii.dev/install.sh | sh
+  args:
+    creates: /usr/local/bin/iii
+  environment:
+    HOME: /root
+
+- name: Symlink iii to /usr/local/bin
+  shell: |
+    III_PATH=$(find /root -name 'iii' -type f 2>/dev/null | head -1)
+    if [ -n "$III_PATH" ] && [ ! -f /usr/local/bin/iii ]; then
+      ln -s "$III_PATH" /usr/local/bin/iii
+    fi
+  changed_when: false
+
+- name: Create caller-worker directory
+  file:
+    path: "{{ project_dir }}/caller-worker"
+    state: directory
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0755"
+
+- name: Copy caller-worker source files
+  copy:
+    src: caller-worker/
+    dest: "{{ project_dir }}/caller-worker/"
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0644"
+
+- name: Write caller-worker environment file
+  template:
+    src: caller-worker.env.j2
+    dest: "{{ project_dir }}/caller-worker/.env"
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0600"
+
+- name: Install npm dependencies
+  npm:
+    path: "{{ project_dir }}/caller-worker"
+    state: present
+  become_user: "{{ service_user }}"
+
+- name: Install caller-worker systemd service
+  template:
+    src: caller-worker.service.j2
+    dest: /etc/systemd/system/caller-worker.service
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart caller-worker
+
+- name: Enable and start caller-worker
+  service:
+    name: caller-worker
+    state: started
+    enabled: true
+
+handlers:
+  - name: Reload systemd
+    systemd:
+      daemon_reload: true
+
+  - name: Restart caller-worker
+    service:
+      name: caller-worker
+      state: restarted
