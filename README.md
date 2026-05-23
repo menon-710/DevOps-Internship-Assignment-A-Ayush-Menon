@@ -54,10 +54,10 @@ curl POST /math/add-two-numbers
 
 | Component | Cloud | Region | Instance |
 |---|---|---|---|
-| Gateway | AWS EC2 | ap-south-1 | t2.micro |
-| iii Engine | AWS EC2 | ap-south-1 | t2.micro |
-| Caller Worker | AWS EC2 | ap-south-1 | t2.micro |
-| Math Worker | AWS EC2 | ap-south-1 | t2.micro |
+| Gateway | AWS EC2 | ap-south-1 | t3.micro |
+| iii Engine | AWS EC2 | ap-south-1 | t3.micro |
+| Caller Worker | AWS EC2 | ap-south-1 | t3.micro |
+| Math Worker | AWS EC2 | ap-south-1 | t3.micro |
 
 **Networking:**
 - VPC CIDR: `10.0.0.0/16`
